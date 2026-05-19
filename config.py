@@ -1,9 +1,3 @@
-# config.py
-# Bu yerga o'z ma'lumotlaringizni kiriting!
-
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # @BotFather dan olingan token
-
-ADMIN_IDS = [
-    123456789,  # O'z Telegram ID'ingizni kiriting
-    # Ko'proq admin qo'shish mumkin
-]
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_IDS = [int(os.getenv("ADMIN_IDS", "0"))]
