@@ -9,7 +9,7 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from shazamio import Shazam
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -48,43 +48,68 @@ async def handle_link(message: types.Message):
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            opts = {
-                "outtmpl": tmpdir + "/video.%(ext)s",
-                "format": "best[ext=mp4]/best",
+            # Avval faqat audio yuklab Shazam uchun
+            audio_opts = {
+                "outtmpl": tmpdir + "/audio.%(ext)s",
+                "format": "worstaudio/worst",
                 "quiet": True,
                 "no_warnings": True,
-                "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
             }
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get("title", "Video")
+            song_title = "Video"
+            song_artist = ""
+            cover = ""
 
-            filepath = None
+            try:
+                with yt_dlp.YoutubeDL(audio_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    song_title = info.get("title", "Video")
+
+                audio_path = None
+                for f in os.listdir(tmpdir):
+                    audio_path = os.path.join(tmpdir, f)
+                    break
+
+                if audio_path:
+                    shazam_result = await shazam.recognize(audio_path)
+                    track = shazam_result.get("track")
+                    if track:
+                        song_title = track.get("title", song_title)
+                        song_artist = track.get("subtitle", "")
+                        cover = track.get("images", {}).get("coverarthq", "")
+            except Exception as e:
+                logger.warning("Audio xato: " + str(e))
+
+            # Video yuklab yuborish
+            video_opts = {
+                "outtmpl": tmpdir + "/video.%(ext)s",
+                "format": "best[ext=mp4][filesize<45M]/best[filesize<45M]",
+                "quiet": True,
+                "no_warnings": True,
+            }
+
+            with yt_dlp.YoutubeDL(video_opts) as ydl:
+                ydl.extract_info(url, download=True)
+
+            video_path = None
             for f in os.listdir(tmpdir):
-                filepath = os.path.join(tmpdir, f)
-                break
+                if "video" in f:
+                    video_path = os.path.join(tmpdir, f)
+                    break
 
-            if not filepath:
-                await bot.edit_message_text("Video topilmadi!", message.chat.id, wait.message_id)
-                return
-
-            size = os.path.getsize(filepath)
-            if size > 50 * 1024 * 1024:
-                await bot.edit_message_text("Video 50MB dan katta!", message.chat.id, wait.message_id)
-                return
-
-            shazam_result = await shazam.recognize(filepath)
-            track = shazam_result.get("track")
+            if not video_path:
+                for f in os.listdir(tmpdir):
+                    p = os.path.join(tmpdir, f)
+                    if os.path.getsize(p) > 100000:
+                        video_path = p
+                        break
 
             await bot.delete_message(message.chat.id, wait.message_id)
 
-            with open(filepath, "rb") as vf:
-                await message.answer_video(vf, caption="🎬 " + title, supports_streaming=True)
+            if video_path and os.path.exists(video_path):
+                with open(video_path, "rb") as vf:
+                    await message.answer_video(vf, caption="🎬 " + song_title, supports_streaming=True)
 
-            if track:
-                song_title = track.get("title", title)
-                song_artist = track.get("subtitle", "")
-                cover = track.get("images", {}).get("coverarthq", "")
+            if song_artist:
                 text = make_music_text(song_title, song_artist)
                 if cover:
                     await message.answer_photo(cover, caption=text, parse_mode="Markdown")
@@ -94,7 +119,7 @@ async def handle_link(message: types.Message):
     except Exception as e:
         logger.error(str(e))
         try:
-            await bot.edit_message_text("Xatolik: " + str(e)[:100], message.chat.id, wait.message_id)
+            await bot.edit_message_text("Xatolik: " + str(e)[:200], message.chat.id, wait.message_id)
         except Exception:
             await message.answer("Xatolik yuz berdi.")
 
