@@ -1,4 +1,5 @@
 aiogram==3.7.0
 aiofiles==23.2.1
-shazamio==0.4.0.1
 yt-dlp==2024.1.0
+shazamio
+requests
