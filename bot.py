@@ -7,40 +7,28 @@ import yt_dlp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
-from shazamio import Shazam
 
-logging.basicConfig(level=logging.WARNING)
+logging.disable(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-shazam = Shazam()
 
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
         "Salom! Musiqa botiman!\n\n"
-        "Yuboring:\n"
-        "- YouTube/TikTok linki\n"
-        "- Ovozli xabar\n"
-        "- Audio yoki video fayl"
+        "YouTube yoki TikTok linki yuboring!\n"
+        "Video va qoshiq linklarini beraman!"
     )
-
-
-def make_music_text(title, artist):
-    q = urllib.parse.quote(artist + " " + title)
-    yt = "https://www.youtube.com/results?search_query=" + q
-    remix = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(artist + " " + title + " remix")
-    spot = "https://open.spotify.com/search/" + q
-    return "🎵 " + title + "\n👤 " + artist + "\n\n🎬 [YouTube](" + yt + ")\n🔴 [Remix](" + remix + ")\n🟢 [Spotify](" + spot + ")"
 
 
 @dp.message(F.text)
 async def handle_link(message: types.Message):
     url = message.text.strip()
-    if not any(x in url for x in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com"]):
+    if not any(x in url for x in ["youtube.com", "youtu.be", "tiktok.com"]):
         await message.answer("YouTube yoki TikTok linki yuboring!")
         return
 
@@ -48,78 +36,54 @@ async def handle_link(message: types.Message):
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Avval faqat audio yuklab Shazam uchun
-            audio_opts = {
-                "outtmpl": tmpdir + "/audio.%(ext)s",
-                "format": "worstaudio/worst",
-                "quiet": True,
-                "no_warnings": True,
-            }
-            song_title = "Video"
-            song_artist = ""
-            cover = ""
-
-            try:
-                with yt_dlp.YoutubeDL(audio_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    song_title = info.get("title", "Video")
-
-                audio_path = None
-                for f in os.listdir(tmpdir):
-                    audio_path = os.path.join(tmpdir, f)
-                    break
-
-                if audio_path:
-                    shazam_result = await shazam.recognize(audio_path)
-                    track = shazam_result.get("track")
-                    if track:
-                        song_title = track.get("title", song_title)
-                        song_artist = track.get("subtitle", "")
-                        cover = track.get("images", {}).get("coverarthq", "")
-            except Exception as e:
-                logger.warning("Audio xato: " + str(e))
-
-            # Video yuklab yuborish
-            video_opts = {
+            opts = {
                 "outtmpl": tmpdir + "/video.%(ext)s",
                 "format": "best[ext=mp4][filesize<45M]/best[filesize<45M]",
                 "quiet": True,
                 "no_warnings": True,
+                "logger": None,
             }
 
-            with yt_dlp.YoutubeDL(video_opts) as ydl:
-                ydl.extract_info(url, download=True)
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get("title", "Video")
+                uploader = info.get("uploader", "")
 
             video_path = None
             for f in os.listdir(tmpdir):
-                if "video" in f:
-                    video_path = os.path.join(tmpdir, f)
+                p = os.path.join(tmpdir, f)
+                if os.path.getsize(p) > 10000:
+                    video_path = p
                     break
-
-            if not video_path:
-                for f in os.listdir(tmpdir):
-                    p = os.path.join(tmpdir, f)
-                    if os.path.getsize(p) > 100000:
-                        video_path = p
-                        break
 
             await bot.delete_message(message.chat.id, wait.message_id)
 
-            if video_path and os.path.exists(video_path):
-                with open(video_path, "rb") as vf:
-                    await message.answer_video(vf, caption="🎬 " + song_title, supports_streaming=True)
+            if not video_path:
+                await message.answer("Video topilmadi!")
+                return
 
-            if song_artist:
-                text = make_music_text(song_title, song_artist)
-                if cover:
-                    await message.answer_photo(cover, caption=text, parse_mode="Markdown")
-                else:
-                    await message.answer(text, parse_mode="Markdown")
+            q = urllib.parse.quote(title)
+            yt = "https://www.youtube.com/results?search_query=" + q
+            remix = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(title + " remix")
+            spot = "https://open.spotify.com/search/" + q
+
+            caption = "🎬 " + title
+
+            with open(video_path, "rb") as vf:
+                await message.answer_video(vf, caption=caption, supports_streaming=True)
+
+            text = (
+                "🎵 *" + title + "*\n"
+                "👤 " + uploader + "\n\n"
+                "🎬 [YouTube](" + yt + ")\n"
+                "🔴 [Remix](" + remix + ")\n"
+                "🟢 [Spotify](" + spot + ")"
+            )
+            await message.answer(text, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(str(e))
         try:
-            await bot.edit_message_text("Xatolik: " + str(e)[:200], message.chat.id, wait.message_id)
+            await bot.edit_message_text("Xatolik: " + str(e)[:150], message.chat.id, wait.message_id)
         except Exception:
             await message.answer("Xatolik yuz berdi.")
 
@@ -127,6 +91,10 @@ async def handle_link(message: types.Message):
 async def recognize_and_reply(message: types.Message, file_id: str, ext: str):
     wait = await message.answer("Qoshiq aniqlanmoqda...")
     try:
+        from shazamio import Shazam
+        import warnings
+        warnings.filterwarnings("ignore")
+
         file = await bot.get_file(file_id)
         data = await bot.download_file(file.file_path)
 
@@ -134,6 +102,7 @@ async def recognize_and_reply(message: types.Message, file_id: str, ext: str):
             tmp.write(data.read())
             tmp_path = tmp.name
 
+        shazam = Shazam()
         result = await shazam.recognize(tmp_path)
         os.unlink(tmp_path)
 
@@ -145,7 +114,19 @@ async def recognize_and_reply(message: types.Message, file_id: str, ext: str):
         title = track.get("title", "Noma'lum")
         artist = track.get("subtitle", "Noma'lum")
         cover = track.get("images", {}).get("coverarthq", "")
-        text = make_music_text(title, artist)
+
+        q = urllib.parse.quote(artist + " " + title)
+        yt = "https://www.youtube.com/results?search_query=" + q
+        remix = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(artist + " " + title + " remix")
+        spot = "https://open.spotify.com/search/" + q
+
+        text = (
+            "🎵 " + title + "\n"
+            "👤 " + artist + "\n\n"
+            "🎬 [YouTube](" + yt + ")\n"
+            "🔴 [Remix](" + remix + ")\n"
+            "🟢 [Spotify](" + spot + ")"
+        )
 
         await bot.delete_message(message.chat.id, wait.message_id)
 
@@ -155,7 +136,6 @@ async def recognize_and_reply(message: types.Message, file_id: str, ext: str):
             await message.answer(text, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(str(e))
         await message.answer("Xatolik yuz berdi.")
 
 
@@ -172,11 +152,6 @@ async def handle_audio(message: types.Message):
 @dp.message(F.video)
 async def handle_video(message: types.Message):
     await recognize_and_reply(message, message.video.file_id, ".mp4")
-
-
-@dp.message(F.video_note)
-async def handle_video_note(message: types.Message):
-    await recognize_and_reply(message, message.video_note.file_id, ".mp4")
 
 
 async def main():
