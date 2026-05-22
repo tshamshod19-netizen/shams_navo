@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from shazamio import Shazam
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(name)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
@@ -108,9 +108,7 @@ async def recognize_and_reply(message: types.Message, file_id: str, ext: str):
             "🟢 [Spotify](" + spot_url + ")"
         )
 
-        await bot.delete_message(message.chat.id, wait.message_id)
-
-        if cover:
+        await bot.delete_message(message.chat.id, wait.message_id)if cover:
             await message.answer_photo(cover, caption=text, parse_mode="Markdown")
         else:
             await message.answer(text, parse_mode="Markdown")
@@ -144,6 +142,5 @@ async def main():
     await dp.start_polling(bot)
 
 
-if __name__ == "__main__":
+if name == "main":
     asyncio.run(main())
-
